@@ -1,0 +1,107 @@
+		forvalues H_iterator = 1/6 {
+			local H = (`H_iterator' * 2 ) ^ 2
+			
+			local fac_H = (`H' * (`H' + 1)) / 2
+			local H_str_conc = "$i_ave" + "[_n] * " + string(`H')
+			
+			local H_m1 = `H' - 1
+			forvalues i = 1 / `H_m1' {
+				local H_str_conc = "`H_str_conc'" + "+" + "$i_ave" + "[_n-" + string(`i') + "] * " + string((`H' - `i'))
+			}
+			gen WMA$i_ave = (`H_str_conc') / `fac_H'
+
+			local h_H = `H' / 2
+			local fac_H = (`h_H' * (`h_H' + 1)) / 2
+			local H_str_conc = "$i_ave" + "[_n] * " + string(`h_H')
+			
+			local H_m1 = `h_H' - 1
+			forvalues i = 1 / `H_m1'{
+				local H_str_conc = "`H_str_conc'" + "+" + "$i_ave" + "[_n-" + string(`i') + "] * " + string((`h_H' - `i'))
+			}
+			gen h_WMA$i_ave = (`H_str_conc') / `fac_H'
+
+				gen WWMA$i_ave = (2 * h_WMA$i_ave) - WMA$i_ave
+
+			local sqr_H = `H' ^ (0.5)
+			local fac_H = (`sqr_H' * (`sqr_H' + 1)) / 2
+			local H_str_conc = "WWMA$i_ave[_n] * " + string(`sqr_H')
+			
+			local H_m1 = `sqr_H' - 1
+			forvalues i = 1 / `H_m1'{
+				local H_str_conc = "`H_str_conc'" + "+" + "WWMA$i_ave[_n-" + string(`i') + "] * " + string((`sqr_H' - `i'))
+			}
+			gen H$i_ave = (`H_str_conc') / `fac_H'
+
+			local end = _N
+			local beginning = `end' - ((`H' * 1.25) + 10)
+			egen Zeros = count(H$i_ave) if (H$i_ave == 0) in `beginning' / `end'
+			egen Counter = mean(Zeros)
+			
+			local counter = Counter[_N]
+			if `counter' != . {
+				local H_iterator = `H_iterator' + 1
+				drop H$i_ave h_WMA$i_ave WMA$i_ave WWMA$i_ave Zeros Counter
+			}
+			else {
+				drop h_WMA$i_ave WMA$i_ave WWMA$i_ave Zeros Counter
+				continue, break
+			}
+
+		}
+		replace H$i_ave = 1 / (abs(H$i_ave) ^ (1/c(pi)))
+		gen l$i_ave = ln(H$i_ave)
+		gen lp$i_ave = l$i_ave ^ c(pi)
+		
+		corrgram l$i_ave, lags(100)
+		matrix M$i_ave = r(AC)
+		matrix P$i_ave = r(PAC)
+		local top = 0
+		local mid = 0
+		local bot = 0
+		local bomb = 0
+		local b_i = 1
+
+		
+		while `bomb' == 0 {
+			forvalues i = `b_i' / 100 {
+				if (M$i_ave[1,`i'] > 0.01) & (`i' < 99){	
+					continue
+				}
+				else {
+					local top = `i' - 1
+					local mid = `i'
+					local b_i = `i' + 1
+					local bomb = `bomb' + 1
+					continue, break
+				}
+			}
+		}
+
+		while `bomb' == 1 {
+			forvalues i = `b_i' / 100 {
+				local pacmatrix = P$i_ave[1,(`i' + 1)]
+				if ((M$i_ave[1,`i'] < -0.04) | ((M$i_ave[1,(`i'+1)] - M$i_ave[1,`i']) < 0)) & (`i' < 100 & `pacmatrix' != .) {
+					continue
+				}
+				else {
+					local bot = `i' - 1
+					local b_i = `i'
+					local last = `mid' + 1
+					local bomb = `bomb' + 1
+					continue, break
+				}
+			}
+		}
+		
+		if (`top' * 2) < `bot'{
+			local bot = `top' * 2
+			local b_i = `bot' + 1
+		}
+
+		prais l$i_ave H$i_ave L`mid'.H$i_ave L`b_i'.H$i_ave L(1/`top').l$i_ave L(`last'/`bot').lp$i_ave, rhotype(regress) ssesearch noconstant
+		predict HAT$i_ave 
+		replace HAT$i_ave = exp(HAT$i_ave)
+		drop l$i_ave lp$i_ave
+
+	
+		
